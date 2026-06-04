@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Consulta Masiva - TACTO</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; padding: 30px; }
+.container { max-width: 1200px; margin: 0 auto; }
+h1 { font-size: 24px; margin-bottom: 5px; color: #f1f5f9; }
+.sub { color: #94a3b8; margin-bottom: 20px; font-size: 14px; }
+.fila { display: flex; gap: 10px; align-items: start; margin-bottom: 20px; }
+textarea { flex: 1; height: 120px; padding: 12px; font-family: 'Courier New', monospace; font-size: 13px; background: #1e293b; border: 1px solid #334155; border-radius: 8px; color: #e2e8f0; resize: vertical; }
+textarea::placeholder { color: #64748b; }
+button { padding: 12px 32px; background: #3b82f6; color: #fff; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: background .2s; }
+button:hover { background: #2563eb; }
+button:disabled { background: #475569; cursor: not-allowed; }
+.controles { display: flex; flex-direction: column; gap: 8px; align-items: start; }
+.estado { font-size: 13px; color: #94a3b8; padding: 4px 0; }
+.tabla-wrap { overflow-x: auto; border: 1px solid #334155; border-radius: 8px; background: #1e293b; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+thead th { background: #334155; color: #f1f5f9; padding: 10px 12px; text-align: left; font-weight: 600; position: sticky; top: 0; white-space: nowrap; }
+tbody td { padding: 8px 12px; border-bottom: 1px solid #1e293b; }
+tbody tr:hover { background: #1e293b; }
+tbody tr:nth-child(even) { background: #162032; }
+tbody tr:nth-child(even):hover { background: #1e293b; }
+.error { background: #7f1d1d !important; }
+.error td { color: #fca5a5; }
+.loading td { color: #94a3b8; font-style: italic; }
+.estado-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+.ok { background: #065f46; color: #6ee7b7; }
+.fail { background: #7f1d1d; color: #fca5a5; }
+.resumen { display: flex; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
+.resumen-item { background: #1e293b; padding: 10px 16px; border-radius: 8px; border: 1px solid #334155; font-size: 13px; }
+.resumen-item span { color: #94a3b8; }
+.resumen-item strong { color: #f1f5f9; font-size: 18px; }
+.oculto { display: none; }
+.limpiar { padding: 8px 16px; background: transparent; border: 1px solid #475569; border-radius: 6px; color: #94a3b8; cursor: pointer; font-size: 12px; }
+.limpiar:hover { border-color: #94a3b8; color: #e2e8f0; }
+#spinner { display: none; }
+#spinner.mostrar { display: inline-block; width: 16px; height: 16px; border: 2px solid #475569; border-top-color: #3b82f6; border-radius: 50%; animation: spin .6s linear infinite; vertical-align: middle; margin-right: 6px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Consulta Masiva TACTO</h1>
+  <p class="sub">Ingresa un DNI por linea y presiona Buscar</p>
+
+  <div class="fila">
+    <textarea id="inputDnis" placeholder="48213083&#10;40825702&#10;45647771&#10;...">48213083
+40825702
+45647771</textarea>
+    <div class="controles">
+      <button id="btnBuscar" onclick="buscar()">Buscar</button>
+      <button class="limpiar" onclick="limpiar()">Limpiar resultados</button>
+      <div class="estado" id="estado"><span id="spinner"></span><span id="textoEstado">Listo</span></div>
+    </div>
+  </div>
+
+  <div id="resumen" class="resumen oculto"></div>
+
+  <div class="tabla-wrap" id="tablaWrap">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>DNI</th>
+          <th>Estado</th>
+          <th>Nombre completo</th>
+          <th>Direccion</th>
+          <th>Nacimiento</th>
+          <th>Genero</th>
+          <th>Estado civil</th>
+          <th>Madre</th>
+          <th>Ubigeo actual</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const API = 'http://127.0.0.1:9180';
+
+function $(id) { return document.getElementById(id); }
+
+function setEstado(msg, spinner) {
+  $('spinner').className = spinner ? 'mostrar' : '';
+  $('textoEstado').textContent = msg;
+}
+
+function limpiar() {
+  $('tbody').innerHTML = '';
+  $('resumen').classList.add('oculto');
+  setEstado('Listo', false);
+}
+
+function renderGenero(g) {
+  if (g === '1' || g === 'M' || g === 'MASCULINO') return 'Masculino';
+  if (g === '2' || g === 'F' || g === 'FEMENINO') return 'Femenino';
+  return g || '-';
+}
+
+function renderFila(numero, dni, data) {
+  const p = data?.person || data || {};
+  const tr = document.createElement('tr');
+  if (data?.error) tr.className = 'error';
+  tr.innerHTML = `
+    <td>${numero}</td>
+    <td>${dni}</td>
+    <td>${data?.error ? '<span class="estado-badge fail">ERROR</span>' : '<span class="estado-badge ok">OK</span>'}</td>
+    <td>${data?.error ? data.error : (p.fullName || p.firstName + ' ' + (p.middleName||'') + ' ' + (p.lastName||'') || '-')}</td>
+    <td>${p.address || '-'}</td>
+    <td>${p.birthdate || '-'}</td>
+    <td>${renderGenero(p.gender)}</td>
+    <td>${p.maritalStatus || '-'}</td>
+    <td>${p.mother || '-'}</td>
+    <td>${p.currentUbigeo || p.birthdateUbigeo || '-'}</td>
+  `;
+  return tr;
+}
+
+async function buscar() {
+  const texto = $('inputDnis').value.trim();
+  if (!texto) return;
+
+  const dnis = texto.split('\n').map(l => l.trim()).filter(l => /^\d+$/.test(l));
+  if (!dnis.length) {
+    setEstado('No se encontraron DNIs validos', false);
+    return;
+  }
+
+  $('btnBuscar').disabled = true;
+  const tbody = $('tbody');
+  tbody.innerHTML = '';
+  $('resumen').classList.add('oculto');
+
+  let ok = 0, fail = 0;
+
+  for (let i = 0; i < dnis.length; i++) {
+    const dni = dnis[i];
+    const loadingRow = document.createElement('tr');
+    loadingRow.className = 'loading';
+    loadingRow.id = 'row-' + i;
+    loadingRow.innerHTML = `<td>${i+1}</td><td>${dni}</td><td colspan="8">Consultando...</td>`;
+    tbody.appendChild(loadingRow);
+    setEstado(`Consultando ${i+1}/${dnis.length}...`, true);
+
+    try {
+      const resp = await fetch(`${API}/persona/${dni}`);
+      const data = await resp.json();
+      const newRow = renderFila(i+1, dni, data);
+      tbody.replaceChild(newRow, loadingRow);
+      if (data?.error) fail++; else ok++;
+    } catch(e) {
+      const errRow = document.createElement('tr');
+      errRow.className = 'error';
+      errRow.innerHTML = `<td>${i+1}</td><td>${dni}</td><td><span class="estado-badge fail">ERROR</span></td><td colspan="7">${e.message}</td>`;
+      tbody.replaceChild(errRow, loadingRow);
+      fail++;
+    }
+  }
+
+  setEstado(`Finalizado: ${ok} OK, ${fail} errores`, false);
+  $('btnBuscar').disabled = false;
+
+  $('resumen').innerHTML = `
+    <div class="resumen-item"><span>Consultados</span><br><strong>${dnis.length}</strong></div>
+    <div class="resumen-item"><span>Exitosos</span><br><strong style="color:#6ee7b7">${ok}</strong></div>
+    <div class="resumen-item"><span>Errores</span><br><strong style="color:#fca5a5">${fail}</strong></div>
+  `.trim();
+  $('resumen').classList.remove('oculto');
+}
+</script>
+</body>
+</html>

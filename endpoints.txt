@@ -1,0 +1,159 @@
+ENDPOINTS TACTO - SOLUCIONESE RICHI
+====================================
+Servidor origen: 207.244.230.123
+Servidor destino: tacto.ucvox.com (15.235.54.122)
+IP permitida en allowedIp: SI
+Estado sesion: ACTIVA (token almacenado en tacto_token.json)
+
+Autenticacion requerida en cada request:
+  Authorization: Bearer <token>
+  id: <user_id>
+  cid: <company_id>
+
+Las respuestas GET vienen cifradas en AES-256-GCM.
+Usar tacto_client.py para descifrar automaticamente.
+
+======================================================================
+ENDPOINTS DISPONIBLES
+======================================================================
+
+1. PERSONA POR DOCUMENTO
+   GET /api/query/getPerson/{dni}
+   Ej: /api/query/getPerson/48213083
+   Response: datos personales (nombres, apellidos, direccion, nacimiento, genero, estado)
+
+2. HISTORIAL SBS (Crediticio)
+   GET /api/query/getSbs/{dni}/0
+   Ej: /api/query/getSbs/48213083/0
+   Response: reporte crediticio SBS, periodo, entidades, calificacion
+
+3. DATOS AFP
+   GET /api/query/getAfp/{dni}
+   Ej: /api/query/getAfp/48213083
+   Response: datos de AFP, situacion laboral, aportaciones
+
+4. REPORTE RCC
+   GET /api/rcc/getRccData/{dni}
+   Ej: /api/rcc/getRccData/48213083
+   Response: reporte consolidado de riesgo
+
+5. SUNAT (EMPRESA POR RUC)
+   GET /api/company/getSunat/{ruc}
+   Ej: /api/company/getSunat/20123456789
+   Response: datos de empresa, estado, direccion, representantes
+
+6. VEHICULO POR PLACA
+   GET /api/other/getSunarpPlate/{placa}
+   Ej: /api/other/getSunarpPlate/ABC123
+   Response: datos vehiculares (propietario, caracteristicas)
+
+7. SOAT
+   GET /api/other/getSoatPlate/{placa}
+   Ej: /api/other/getSoatPlate/ABC123
+   Response: cobertura, vigencia, aseguradora
+
+8. LICENCIA DE CONDUCIR
+   GET /api/other/getLicence/{licencia}
+   Ej: /api/other/getLicence/48213083
+   Response: datos de licencia, clase, restricciones, vigencia
+
+9. BUSQUEDA POR TELEFONO
+   GET /api/query/getByPhone/{numero}
+   Ej: /api/query/getByPhone/999888777
+   Response: personas asociadas al numero
+
+10. BUSQUEDA POR NOMBRE
+    GET /files/people/getAll?param1=valor&param2=valor
+    Ej: /files/people/getAll?firstName=JUAN&lastName=PEREZ
+    Response: personas que coinciden con los criterios
+
+11. CARGA MASIVA (ARCHIVO)
+    POST /files/Masive/upload        -> Personas (DNI)
+    POST /files/Masive/uploadPhones  -> Telefonos
+    POST /files/Masive/uploadCompany -> Empresas (RUC)
+    Content-Type: multipart/form-data
+    Campo: file (CSV o TXT, una columna)
+    Response: archivo XLSX con resultados enriquecidos
+
+======================================================================
+USO DESDE PYTHON
+======================================================================
+
+from tacto_client import TACTO
+
+api = TACTO(token_file='/ruta/a/tacto_token.json')
+
+# Persona
+data = api.get_person('48213083')
+
+# SBS
+data = api.get_sbs('48213083')
+
+# RCC
+data = api.get_rcc('48213083')
+
+# Placa
+data = api.get_plate('ABC123')
+
+# SOAT
+data = api.get_soat('ABC123')
+
+# RUC
+data = api.get_sunat('20123456789')
+
+# Telefono
+data = api.get_phone('999888777')
+
+# Licencia
+data = api.get_licence('48213083')
+
+# Busqueda por nombre
+data = api.search_name({'firstName': 'JUAN', 'lastName': 'PEREZ'})
+
+# Carga masiva
+resp = api.massive_upload('dnis.csv', 'personas')
+
+======================================================================
+API SERVER LOCAL (HTTP)
+======================================================================
+
+Levantar servidor local para que otros servicios del mismo servidor
+consulten via HTTP (sin importar Python):
+
+python3 api_server.py &
+
+Endpoints disponibles (GET, responde JSON ya descifrado):
+
+  http://127.0.0.1:9180/persona/{dni}
+  http://127.0.0.1:9180/sbs/{dni}
+  http://127.0.0.1:9180/afp/{dni}
+  http://127.0.0.1:9180/rcc/{dni}
+  http://127.0.0.1:9180/ruc/{ruc}
+  http://127.0.0.1:9180/placa/{placa}
+  http://127.0.0.1:9180/soat/{placa}
+  http://127.0.0.1:9180/licencia/{doc}
+  http://127.0.0.1:9180/telefono/{numero}
+  http://127.0.0.1:9180/nombre/{param}={valor}&{param2}={valor2}
+
+Ejemplos:
+
+  curl http://127.0.0.1:9180/persona/48213083
+  curl http://127.0.0.1:9180/ruc/20123456789
+  curl http://127.0.0.1:9180/placa/ABC123
+  curl http://127.0.0.1:9180/telefono/999888777
+  curl http://127.0.0.1:9180/nombre/firstName=JUAN&lastName=PEREZ
+
+Este servidor NO requiere autenticacion extra porque escucha solo
+en 127.0.0.1 (localhost). Sirve como bridge HTTP para servicios en
+otros lenguajes (PHP, Node, Go, etc.) alojados en el mismo servidor.
+
+======================================================================
+NOTAS
+======================================================================
+
+- No hay limite de 15 segundos via API directa
+- El refresh del token es automatico
+- Si el token expira y hay credenciales, se reloguea solo
+- La IP del servidor debe estar en allowedIp del usuario
+- Los datos viajan cifrados extremo a extremo (AES-256-GCM)
+- El archivo tacto_token.json contiene el token activo - no compartir
